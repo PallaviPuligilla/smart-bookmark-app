@@ -67,29 +67,55 @@ export default function Home() {
   // ✅ Realtime sync across tabs
   useEffect(() => {
 
-    if (!user) return
+  if (!user) return
 
-    const channel = supabase
-      .channel("bookmarks-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "bookmarks",
-          filter: `user_id=eq.${user.id}`
-        },
-        () => {
-          fetchBookmarks(user.id)
-        }
-      )
-      .subscribe()
+  const channel = supabase
+    .channel("bookmarks-realtime")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "bookmarks",
+        filter: `user_id=eq.${user.id}`
+      },
+      (payload) => {
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+        setBookmarks(prev => {
 
-  }, [user])
+          const exists = prev.find(b => b.id === payload.new.id)
+          if (exists) return prev
+
+          return [payload.new, ...prev]
+
+        })
+
+      }
+    )
+    .on(
+      "postgres_changes",
+      {
+        event: "DELETE",
+        schema: "public",
+        table: "bookmarks",
+        filter: `user_id=eq.${user.id}`
+      },
+      (payload) => {
+
+        setBookmarks(prev =>
+          prev.filter(b => b.id !== payload.old.id)
+        )
+
+      }
+    )
+    .subscribe()
+
+  return () => {
+    supabase.removeChannel(channel)
+  }
+
+}, [user])
+
 
 
 
@@ -98,20 +124,55 @@ export default function Home() {
 
   if (!url || !title || !user) return
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("bookmarks")
     .insert({
       url,
       title,
       user_id: user.id
     })
+    .select()
+    .single()
 
-  if (!error) {
+  if (!error && data) {
+
+    setBookmarks(prev => [data, ...prev])
 
     setUrl("")
     setTitle("")
+  }
 
-   
+}
+
+
+
+
+
+
+  // Delete bookmark
+  const deleteBookmark = async (id: number) => {
+
+  if (!user) return
+
+  // instant UI removal
+  setBookmarks(current => {
+    return current.filter(bookmark => bookmark.id !== id)
+  })
+
+  try {
+
+    const { error } = await supabase
+      .from("bookmarks")
+      .delete()
+      .eq("id", id)
+
+    if (error) {
+      throw error
+    }
+
+  } catch {
+
+    // restore state if delete fails
     fetchBookmarks(user.id)
 
   }
@@ -120,16 +181,6 @@ export default function Home() {
 
 
 
-
-  // Delete bookmark
-  const deleteBookmark = async (id: number) => {
-
-    await supabase
-      .from("bookmarks")
-      .delete()
-      .eq("id", id)
-
-  }
 
 
 
@@ -155,7 +206,7 @@ export default function Home() {
 
   return (
 
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 flex items-center justify-center px-4">
+    <div className="min-h-screen bg-linear-to-br from-slate-100 via-slate-200 to-slate-300 flex items-center justify-center px-4">
 
       <div className="text-center w-full max-w-md">
 
