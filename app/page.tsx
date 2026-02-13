@@ -1,65 +1,356 @@
-import Image from "next/image";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+"use client"
+
+import { supabase } from "../lib/supabase"
+import { useEffect, useState } from "react"
 
 export default function Home() {
+
+  const [user, setUser] = useState<any>(null)
+  const [bookmarks, setBookmarks] = useState<any[]>([])
+  const [url, setUrl] = useState("")
+  const [title, setTitle] = useState("")
+
+  // Fetch bookmarks
+  const fetchBookmarks = async (userId: string) => {
+
+    const { data, error } = await supabase
+      .from("bookmarks")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+
+    if (!error && data) {
+      setBookmarks(data)
+    }
+
+  }
+
+
+  // ✅ Restore session + listen for login/logout
+  useEffect(() => {
+
+    // Restore existing session
+    supabase.auth.getSession().then(({ data }) => {
+
+      if (data.session?.user) {
+        setUser(data.session.user)
+        fetchBookmarks(data.session.user.id)
+      }
+
+    })
+
+    // Listen for auth changes
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+
+        if (session?.user) {
+          setUser(session.user)
+          fetchBookmarks(session.user.id)
+        }
+        else {
+          setUser(null)
+          setBookmarks([])
+        }
+
+      }
+    )
+
+    return () => {
+      listener.subscription.unsubscribe()
+    }
+
+  }, [])
+
+
+
+  // ✅ Realtime sync across tabs
+  useEffect(() => {
+
+    if (!user) return
+
+    const channel = supabase
+      .channel("bookmarks-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "bookmarks",
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          fetchBookmarks(user.id)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+
+  }, [user])
+
+
+
+  // Add bookmark
+  const addBookmark = async () => {
+
+  if (!url || !title || !user) return
+
+  const { error } = await supabase
+    .from("bookmarks")
+    .insert({
+      url,
+      title,
+      user_id: user.id
+    })
+
+  if (!error) {
+
+    setUrl("")
+    setTitle("")
+
+   
+    fetchBookmarks(user.id)
+
+  }
+
+}
+
+
+
+
+  // Delete bookmark
+  const deleteBookmark = async (id: number) => {
+
+    await supabase
+      .from("bookmarks")
+      .delete()
+      .eq("id", id)
+
+  }
+
+
+
+  // Sign in
+  const signInWithGoogle = async () => {
+
+    await supabase.auth.signInWithOAuth({
+      provider: "google"
+    })
+
+  }
+
+
+
+  // Sign out
+  const signOut = async () => {
+
+    await supabase.auth.signOut()
+
+  }
+
+
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-200 to-slate-300 flex items-center justify-center px-4">
+
+      <div className="text-center w-full max-w-md">
+
+        <h1 className="text-4xl font-bold text-gray-800 mb-6 tracking-tight">
+          Smart Bookmark App
+        </h1>
+
+
+        {/* LOGIN BUTTON */}
+        {!user && (
+
+          <button
+            onClick={signInWithGoogle}
+            className="
+              bg-indigo-600
+              text-white
+              px-6
+              py-3
+              rounded-xl
+              font-semibold
+              shadow-sm
+              cursor-pointer
+              transition-all
+              duration-200
+              hover:bg-indigo-700
+              hover:shadow-md
+              hover:scale-[1.03]
+              active:bg-indigo-800
+              active:scale-[0.98]
+              focus:outline-none
+              focus:ring-2
+              focus:ring-indigo-400
+              focus:ring-offset-2
+            "
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+            Sign in with Google
+          </button>
+
+        )}
+
+
+
+        {/* MAIN APP */}
+        {user && (
+
+          <div className="mt-6">
+
+            <p className="mb-4 text-gray-700">
+              Logged in as: {user.email}
+            </p>
+
+
+            {/* SIGN OUT */}
+            <button
+              onClick={signOut}
+              className="
+                bg-slate-600
+                text-white
+                px-4
+                py-2
+                rounded-xl
+                font-medium
+                cursor-pointer
+                transition-all
+                duration-200
+                hover:bg-slate-700
+                hover:shadow-md
+                hover:scale-[1.03]
+                active:bg-slate-800
+                active:scale-[0.98]
+                focus:outline-none
+                focus:ring-2
+                focus:ring-slate-400
+                focus:ring-offset-2
+                mb-4
+              "
+            >
+              Sign Out
+            </button>
+
+
+
+            {/* INPUTS */}
+            <input
+              type="text"
+              placeholder="Title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="border p-2 w-full mb-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+            <input
+              type="text"
+              placeholder="URL"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              className="border p-2 w-full mb-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+
+
+
+            {/* ADD BUTTON */}
+            <button
+              onClick={addBookmark}
+              className="
+                bg-indigo-500
+                text-white
+                px-4
+                py-2
+                rounded-xl
+                w-full
+                font-medium
+                cursor-pointer
+                transition-all
+                duration-200
+                hover:bg-indigo-600
+                hover:shadow-md
+                hover:scale-[1.02]
+                active:bg-indigo-700
+                active:scale-[0.98]
+                focus:outline-none
+                focus:ring-2
+                focus:ring-indigo-400
+                focus:ring-offset-2
+                mb-4
+              "
+            >
+              Add Bookmark
+            </button>
+
+
+
+            {/* BOOKMARK LIST */}
+            {bookmarks.map((bookmark) => (
+
+              <div
+                key={bookmark.id}
+                className="flex justify-between items-center border p-3 mb-2 rounded-lg bg-white shadow-sm hover:shadow-md transition"
+              >
+
+                <div className="text-left">
+
+                  <p className="font-semibold">
+                    {bookmark.title}
+                  </p>
+
+                  <a
+                    href={bookmark.url}
+                    target="_blank"
+                    className="text-indigo-600 text-sm hover:underline"
+                  >
+                    {bookmark.url}
+                  </a>
+
+                </div>
+
+
+                <button
+                  onClick={() => deleteBookmark(bookmark.id)}
+                  className="
+                    bg-rose-500
+                    text-white
+                    px-3
+                    py-1
+                    rounded-xl
+                    font-medium
+                    cursor-pointer
+                    transition-all
+                    duration-200
+                    hover:bg-rose-600
+                    hover:shadow-md
+                    hover:scale-[1.03]
+                    active:bg-rose-700
+                    active:scale-[0.97]
+                    focus:outline-none
+                    focus:ring-2
+                    focus:ring-rose-400
+                    focus:ring-offset-1
+                  "
+                >
+                  Delete
+                </button>
+
+              </div>
+
+            ))}
+
+          </div>
+
+        )}
+
+      </div>
+
     </div>
-  );
+
+  )
+
 }
